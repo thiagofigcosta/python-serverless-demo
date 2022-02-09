@@ -1,0 +1,29 @@
+{
+  "name": "python-serverless-demo",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "husky": "^7.0.4",
+    "serverless-dotenv-plugin": "^3.12.2",
+    "serverless-dynamodb-local": "^0.2.40",
+    "serverless-offline": "^8.4.0",
+    "serverless-plugin-tracing": "^2.0.0",
+    "serverless-python-requirements": "^5.3.1",
+    "serverless-wsgi": "^3.0.0"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "pytest"
+    }
+  }
+}

@@ -1,0 +1,126 @@
+service: python-serverless-demo # project name
+
+# serverless plugins
+plugins:
+  - serverless-wsgi
+  - serverless-python-requirements
+  - serverless-offline # optional, to run locally
+  - serverless-dotenv-plugin # to import .env variables during deploy
+  - serverless-dynamodb-local # simulate dynamo locally
+  - serverless-plugin-tracing # plugin for xray
+
+custom:
+  wsgi:
+    app: psd_service/endpoint_hall.app # file_location.function_name ; app is the flask starter
+    packRequirements: false
+  pythonRequirements:
+    dockerizePip: non-linux # if true docker must be installed and the service must be running (or non-linux on non-linux env), this is for cross-compiling non-python stuff
+  dynamodbUsers: 'user-table-${self:provider.stage}' # define a dynamo table for users
+  dynamodbTransactions: 'transaction-table-${self:provider.stage}' # define a dynamo table for transactions
+  dynamodb: # for offline dynamo
+    stages:
+      - dev
+    start:
+      port: 8032
+      migrate: true
+
+
+# files to exclude from package
+package:
+  exclude:
+    - .gitignore
+    - README.md
+    - package.json
+    - package-lock.json
+    - requirements.txt
+    - .git/**
+    - node_modules/**
+    - venv/**
+    - .idea/**
+    - .serverless/**
+    - .dynamodb/**
+
+# aws
+provider:
+  name: aws
+  runtime: python3.9 # python version (3.9 is the latest https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html)
+  stage: dev
+  region: us-west-1 # aws region
+  memorySize: 256 # optional, in MB, default is 1024
+  iamRoleStatements:
+    - Effect: Allow # permissions for dynamo
+      Action:
+        - dynamodb:Query
+        - dynamodb:Scan
+        - dynamodb:GetItem
+        - dynamodb:PutItem
+        - dynamodb:UpdateItem
+        - dynamodb:DeleteItem
+      Resource:
+        - { "Fn::GetAtt": [ "UsersTable", "Arn" ] } # resource name
+        - { "Fn::GetAtt": [ "TransactionsTable", "Arn" ] } # resource name
+    - Effect: Allow # X ray permissions
+      Action:
+        - "xray:PutTraceSegments"
+        - "xray:PutTelemetryRecords"
+      Resource:
+        - "*"
+  environment:
+    DYNAMODB_USERS: ${self:custom.dynamodbUsers} # set env var for table name
+    DYNAMODB_TRANSACTIONS: ${self:custom.dynamodbTransactions} # set env var for table name
+
+# lambdas
+functions: # declare lambda functions
+  http-handler:
+    handler: wsgi_handler.handler
+    name: "${self:service}-${self:provider.stage}" # optional, Deployed Lambda name
+    tracing: 'true' # enable xray
+    events:
+      - http: ANY /
+      - http: 'ANY /{proxy+}'
+
+# resources
+resources:
+  Resources:
+    UsersTable: # resource name
+      Type: 'AWS::DynamoDB::Table'
+      Properties:
+        AttributeDefinitions: # fields and types, define only fields used for HASH, RANGE in Key schema or GlobalSecondaryIndexes. The other are created automatically
+          - AttributeName: id
+            AttributeType: S # string, B- binary, S- String, N- Numeric
+          - AttributeName: username
+            AttributeType: S # string, B- binary, S- String, N- Numeric
+        KeySchema: # table keys
+          - AttributeName: id
+            KeyType: HASH # Partition key
+        GlobalSecondaryIndexes: # table indices
+          - IndexName: username-index
+            KeySchema:
+              - AttributeName: username
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL # (ALL | KEYS_ONLY | INCLUDE)
+            ProvisionedThroughput: # read and write limits
+              ReadCapacityUnits: 1 # reads per second
+              WriteCapacityUnits: 1 # writes per second
+        ProvisionedThroughput: # read and write limits
+          ReadCapacityUnits: 1 # reads per second
+          WriteCapacityUnits: 1 # writes per second
+        TableName: ${self:custom.dynamodbUsers} # the table name
+    TransactionsTable: # resource name
+      Type: 'AWS::DynamoDB::Table'
+      Properties:
+        AttributeDefinitions: # fields and types, define only fields used for HASH, RANGE in Key schema or GlobalSecondaryIndexes. The other are created automatically
+          - AttributeName: id
+            AttributeType: S # string, B- binary, S- String, N- Numeric
+          - AttributeName: occurredAtUTC
+            AttributeType: S # Date stored as ISO-8601, B- binary, S- String, N- Numeric
+        KeySchema: # table keys
+          - AttributeName: id
+            KeyType: HASH # Partition key
+          - AttributeName: occurredAtUTC
+            KeyType: RANGE # Sort key
+        ProvisionedThroughput: # read and write limits
+          ReadCapacityUnits: 1 # reads per second
+          WriteCapacityUnits: 1 # writes per second
+        TableName: ${self:custom.dynamodbTransactions} # the table name
